@@ -18,6 +18,8 @@ import org.koin.compiler.generator.*
 import org.koin.compiler.metadata.KoinMetaData
 import java.io.OutputStream
 
+private val ROWS_PER_METHOD_LIMIT = 500
+
 fun OutputStream.generateFieldDefaultModule(definitions: List<KoinMetaData.Definition>) {
     val standardDefinitions = definitions.filter { it.isNotScoped() }.toSet()
     val scopeDefinitions = definitions.filter { it.isScoped() }.toSet()
@@ -35,7 +37,7 @@ fun OutputStream.generateFieldDefaultModule(definitions: List<KoinMetaData.Defin
 }
 
 fun OutputStream.generateDefaultModuleDefinition(definition: KoinMetaData.Definition) {
-    if (definition is KoinMetaData.Definition.ClassDefinition){
+    if (definition is KoinMetaData.Definition.ClassDefinition) {
         generateClassDeclarationDefinition(definition)
     } else if (definition is KoinMetaData.Definition.FunctionDefinition && !definition.isClassFunction) {
         generateFunctionDeclarationDefinition(definition)
@@ -49,9 +51,12 @@ fun generateClassModule(classFile: OutputStream, module: KoinMetaData.Module) {
     val generatedField = module.generateModuleField(classFile)
 
     val modulePath = "${module.packageName}.${module.name}"
+    val moduleName = "${module.packageName("_")}_${module.name}"
 
     module.includes?.let { includes ->
-        if (includes.isNotEmpty()) { generateIncludes(includes, classFile) }
+        if (includes.isNotEmpty()) {
+            generateIncludes(includes, classFile)
+        }
     }
 
     if (module.definitions.isNotEmpty()) {
@@ -59,12 +64,17 @@ fun generateClassModule(classFile: OutputStream, module: KoinMetaData.Module) {
                 // if any definition is a class function, we need to instantiate the module instance
                 // to able to call the function on this instance.
                 it is KoinMetaData.Definition.FunctionDefinition &&
-                    it.isClassFunction
+                        it.isClassFunction
             }) {
             classFile.appendText("${NEW_LINE}val moduleInstance = $modulePath()")
         }
 
-        generateDefinitions(module, classFile)
+        repeat(module.definitions.size / ROWS_PER_METHOD_LIMIT + 1) { index ->
+            classFile.appendText("${NEW_LINE}${moduleName}${index}()")
+        }
+        classFile.appendText("\n}")
+
+        generateDefinitions(module, moduleName, classFile)
     }
 
     classFile.appendText("\n}")
@@ -79,15 +89,32 @@ fun generateClassModule(classFile: OutputStream, module: KoinMetaData.Module) {
 
 private fun generateDefinitions(
     module: KoinMetaData.Module,
+    moduleName: String,
     classFile: OutputStream
 ) {
+    var row = 0
+    fun generateConfigHeader() {
+        if (row % ROWS_PER_METHOD_LIMIT == 0) {
+            if (row != 0) {
+                classFile.appendText("\n}")
+            }
+            classFile.appendText("\n\n${modulePartMethodHeader(moduleName, row / ROWS_PER_METHOD_LIMIT)}")
+        }
+    }
+
     val standardDefinitions = module.definitions.filter { it.isNotScoped() }
-    standardDefinitions.forEach { it.generateTargetDefinition(classFile) }
+    standardDefinitions.forEach {
+        generateConfigHeader()
+        row += 1
+        it.generateTargetDefinition(classFile)
+    }
 
     val scopeDefinitions = module.definitions.filter { it.isScoped() }
     scopeDefinitions
         .groupBy { it.scope }
         .forEach { (scope, definitions) ->
+            generateConfigHeader()
+            row += 1
             classFile.appendText(generateScope(scope!!))
             definitions.forEach {
                 it.generateTargetDefinition(classFile)
@@ -108,7 +135,10 @@ private fun KoinMetaData.Definition.generateTargetDefinition(
                 classFile.generateFunctionDeclarationDefinition(this)
             }
         }
-        is KoinMetaData.Definition.ClassDefinition -> classFile.generateClassDeclarationDefinition(this)
+
+        is KoinMetaData.Definition.ClassDefinition -> classFile.generateClassDeclarationDefinition(
+            this
+        )
     }
 }
 
@@ -126,7 +156,8 @@ private fun KoinMetaData.Module.generateModuleField(
     val packageName = packageName("_")
     val generatedField = "${packageName}_${name}"
     val visibilityString = visibility.toSourceString()
-    val createdAtStartString = if (isCreatedAtStart != null && isCreatedAtStart) "($CREATED_AT_START)" else ""
+    val createdAtStartString =
+        if (isCreatedAtStart != null && isCreatedAtStart) "($CREATED_AT_START)" else ""
     classFile.appendText("\n${visibilityString}val $generatedField : Module = module$createdAtStartString {")
     return generatedField
 }

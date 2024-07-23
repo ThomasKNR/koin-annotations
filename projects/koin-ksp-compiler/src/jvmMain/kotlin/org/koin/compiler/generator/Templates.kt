@@ -41,3 +41,7 @@ fun moduleHeader() = """
     import org.koin.dsl.*
     
 """.trimIndent()
+
+fun modulePartMethodHeader(moduleName: String, index: Int)="""
+    public fun Module.${moduleName}${index}(){
+""".trimIndent()
