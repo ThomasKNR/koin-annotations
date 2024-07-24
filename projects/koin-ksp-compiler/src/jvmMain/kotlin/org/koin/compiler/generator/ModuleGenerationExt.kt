@@ -100,21 +100,22 @@ private fun generateDefinitions(
             }
             classFile.appendText("\n\n${modulePartMethodHeader(moduleName, row / ROWS_PER_METHOD_LIMIT)}")
         }
+        row += 1
     }
 
     val standardDefinitions = module.definitions.filter { it.isNotScoped() }
     standardDefinitions.forEach {
         generateConfigHeader()
-        row += 1
         it.generateTargetDefinition(classFile)
     }
 
     val scopeDefinitions = module.definitions.filter { it.isScoped() }
+    if (scopeDefinitions.isNotEmpty()){
+        throw IllegalArgumentException("Scoped definitions are not supported")
+    }
     scopeDefinitions
         .groupBy { it.scope }
         .forEach { (scope, definitions) ->
-            generateConfigHeader()
-            row += 1
             classFile.appendText(generateScope(scope!!))
             definitions.forEach {
                 it.generateTargetDefinition(classFile)
